@@ -1,0 +1,12 @@
+# comment
+SIZE=512 # comment2
+STUFF=512
+
+result: dep1 dep2
+	dep2 dep1 program(param1 param2)
+
+dep1: dep2
+	program([SIZE*2] SIZE)
+
+dep2:
+	program([SIZE*3/1.4] param2)

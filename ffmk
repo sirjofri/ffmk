@@ -1,0 +1,153 @@
+#!/usr/bin/env perl
+# vim:syntax=perl:
+
+use strict;
+use warnings;
+
+sub main {
+	my @contents = <>;
+	my @recipes = parse(@contents);
+	my @order = uniq(build_order(@recipes));
+
+	print "Correct order:\n";
+	foreach my $r (@order) {
+		print "Order: ".%$r{target}." :: ".$r."\n";
+	}
+}
+
+sub uniq {
+	my @list = @_;
+	for (my $index=0; $index < scalar @list; $index++) {
+		my %el = %{$list[$index]};
+		for (my $jndex=$index+1; $jndex < scalar @list; $jndex++) {
+			my %comp = %{$list[$jndex]};
+			splice(@list, $jndex, 1) if $el{target} eq $comp{target};
+		}
+	}
+	return @list;
+}
+
+sub replace_variable {
+	my ($name, $content, $contents_in) = @_;
+	$contents_in =~ s/${name}/${content}/g if defined($name) && defined($content);
+	return $contents_in;
+}
+
+sub filter_comments {
+	my @output;
+	foreach my $line (@_) {
+		$line =~ s/#.*$//g;
+		push(@output, $line);
+	}
+	return @output;
+}
+
+sub filter_command {
+	return @_;
+}
+
+sub filter_recipes {
+	my ($input) = @_;
+
+	my @recipes;
+	my @matches = ($input =~ /.+:.*(?:\n\t.+)*\n?/g);
+	foreach my $match (@matches) {
+		my @result = $match =~ /(?<target>.+):(?<dependencies>.*)(?:\n\t(?<command>.+))*\n?/g;
+
+		my %recipe = (
+			target => $+{target},
+			dependencies => $+{dependencies},
+			command => $+{command} =~ s/(?:\(|\))/ /gr
+		);
+		push(@recipes, \%recipe);
+	}
+	return @recipes;
+}
+
+sub filter_variables {
+	my @input = @_;
+	my @output;
+	my @variables;
+	foreach my $line (@input) {
+		if($line =~ /^.+=.+$/) {
+			push(@variables, $line);
+		} else {
+			push(@output, $line);
+		}
+	}
+	my @result = (join("\n", @variables), join("", @output));
+	return @result;
+}
+
+sub filter_math {
+	my ($input) = @_;
+	my @output;
+	my @expr;
+	my $inside = 0;
+	foreach my $char (split(//, $input)) {
+		if (!$inside) {
+			push(@output, $char) if($char ne "[");
+			$inside = 1 if($char eq "[");
+		} else {
+			push(@expr, $char) if($char ne "]");
+			if($char eq "]") {
+				$inside = 0;
+				my $x = join("", @expr);
+				die "Error: invalid math expressions" if($x !~ /^[0-9+*\/\-()\s\.]*$/g);
+				push(@output, eval($x));
+				@expr = ();
+			}
+		}
+	}
+	return join("", @output);
+}
+
+sub parse {
+	my @input = filter_comments(@_);
+	my ($variables, $vars_filtered) = filter_variables(@input);
+	my @vars = split("\n", $variables);
+
+	my $recipes_str = $vars_filtered;
+	foreach my $variable (@vars) {
+		my @var = split("=", $variable);
+		$recipes_str = replace_variable($var[0], $var[1], $recipes_str);
+	}
+
+	my $evaluated_str = filter_math($recipes_str);
+	my @recipes = filter_recipes($evaluated_str);
+
+	return @recipes;
+}
+
+sub build_order {
+	my @recipes = @_;
+	my @order;
+
+	my @deps;
+
+	my $r_ref = $recipes[0];
+	my %r = %{$r_ref};
+	foreach my $dependency (split /\s+/, $r{dependencies}) {
+		next if $dependency eq "";
+		push(@deps, $dependency);
+	}
+
+	my $index = 0;
+	$index++ until $recipes[$index] eq $r_ref;
+	splice(@recipes, $index, 1);
+
+	foreach my $dependency (@deps) {
+		my @own_list = @recipes;
+		my $index = 0;
+		$index++ until %{$own_list[$index]}{target} eq $dependency;
+		my %e = %{$own_list[$index]};
+		splice(@own_list, $index, 1);
+		unshift(@own_list, \%e);
+		push(@order, build_order(@own_list));
+	}
+
+	push(@order, \%r);
+	return @order;
+}
+
+main();
