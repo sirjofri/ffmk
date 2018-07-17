@@ -1,12 +1,18 @@
-# comment
-SIZE=512 # comment2
-STUFF=512
+# the size (this is a comment btw)
+SIZE=256
 
-result: dep1 dep2
-	dep2 dep1 program(param1 param2)
+result: dep color
+	dep color | ff-mul
 
-dep1: dep2
-	program([SIZE*2] SIZE)
+dep: glow sine
+	glow sine | ff-mul
 
-dep2:
-	program([SIZE*3/1.4] param2)
+# it is also possible to make calculations inside []
+glow:
+	ff-glow([SIZE*2/2])
+
+sine:
+	ff-singen(SIZE SIZE 5)
+
+color:
+	ff-color(SIZE SIZE 1.0 0.8 0.2 1.0)

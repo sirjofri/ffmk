@@ -1,27 +1,111 @@
 #!/usr/bin/env perl
 # vim:syntax=perl:
 
+=head1 NAME
+
+ffmk - A Makefile-like farbfeld tool
+
+=head1 SYNOPSIS
+
+B<< ffmk < >>recipe.fm B<< > >>result-mix
+
+B<< ffmk --files < >>recipe.fm
+
+=head1 DESCRIPTION
+
+This program can handle Makefile-like files for connecting farbfeld tools. You
+can store the resulting farbfeld images as files or get the files in a
+specific format via STDOUT.
+
+=head1 MORE INFORMATON
+
+For more information please visit L<https://github.com/sirjofri/ffmk/> and
+read the Readme.
+
+=cut
+
 use strict;
 use warnings;
 
+use FileHandle;
+use IPC::Open2;
+
+my %data = ();
+my $writefiles = 0;
+
 sub main {
-	my @contents = <>;
+	foreach my $arg (@ARGV) {
+		next if $writefiles;
+		$writefiles = $arg eq '--files';
+	}
+
+	my @contents = <STDIN>;
 	my @recipes = parse(@contents);
 	my @order = uniq(build_order(@recipes));
 
-	print "Correct order:\n";
-	foreach my $r (@order) {
-		print "Order: ".%$r{target}." :: ".$r."\n";
+	run(@order);
+	return;
+}
+
+sub run {
+	my (@order) = @_;
+
+	foreach my $recipe (@order) {
+		my %r = %{$recipe};
+
+		my @deps = ();
+		my @cmds = split(/[|]/, $r{command});
+		if ($r{command} =~ /[|]/) {
+			@deps = split(/\s+/, $cmds[0]);
+			shift @cmds;
+		}
+		my @datastr;
+		foreach my $d (@deps) {
+			push(@datastr, split(//, $data{$d}));
+		}
+
+		my $cmd = $cmds[0];
+		my $pid = open2(\*READER, \*WRITER, $cmd);
+
+		binmode(READER);
+		binmode(WRITER);
+
+		print {*WRITER} join(q{}, @datastr);
+
+		close(WRITER) or die "Error closing pipe to child: $!\n";
+		my @recv = <READER>;
+		waitpid($pid, 0);
+
+		$data{$r{target}} = join(q{}, @recv);
 	}
+
+	if ($writefiles) {
+		foreach my $key (keys %data) {
+			open my $fh, '>', "$key.ff" or die "Error opening file $key: $!\n";
+			binmode($fh);
+			print {$fh} $data{$key};
+			close $fh or die "Error closing file $key: $!\n";
+			print "Wrote output file $key\n";
+		}
+	} else {
+		my @d_out;
+		foreach my $key (keys %data) {
+			push @d_out, "$key:".$data{$key};
+		}
+		print join('dlefbraf:', @d_out);
+	}
+	return;
 }
 
 sub uniq {
-	my @list = @_;
+	my (@list) = @_;
 	for (my $index=0; $index < scalar @list; $index++) {
 		my %el = %{$list[$index]};
 		for (my $jndex=$index+1; $jndex < scalar @list; $jndex++) {
 			my %comp = %{$list[$jndex]};
-			splice(@list, $jndex, 1) if $el{target} eq $comp{target};
+			if($el{target} eq $comp{target}) {
+				splice(@list, $jndex, 1);
+			}
 		}
 	}
 	return @list;
@@ -34,30 +118,27 @@ sub replace_variable {
 }
 
 sub filter_comments {
+	my (@input) = @_;
 	my @output;
-	foreach my $line (@_) {
+	foreach my $line (@input) {
 		$line =~ s/#.*$//g;
 		push(@output, $line);
 	}
 	return @output;
 }
 
-sub filter_command {
-	return @_;
-}
-
 sub filter_recipes {
 	my ($input) = @_;
 
 	my @recipes;
-	my @matches = ($input =~ /.+:.*(?:\n\t.+)*\n?/g);
+	my @matches = ($input =~ /.+:.*(?:\n\t.+)*\n?/gx);
 	foreach my $match (@matches) {
-		my @result = $match =~ /(?<target>.+):(?<dependencies>.*)(?:\n\t(?<command>.+))*\n?/g;
+		my @result = $match =~ /(?<target>.+):(?<dependencies>.*)(?:\n\t(?<command>.+))*\n?/gx;
 
 		my %recipe = (
 			target => $+{target},
 			dependencies => $+{dependencies},
-			command => $+{command} =~ s/(?:\(|\))/ /gr
+			command => $+{command} =~ s/[()]/ /gr,
 		);
 		push(@recipes, \%recipe);
 	}
@@ -65,7 +146,7 @@ sub filter_recipes {
 }
 
 sub filter_variables {
-	my @input = @_;
+	my (@input) = @_;
 	my @output;
 	my @variables;
 	foreach my $line (@input) {
@@ -75,7 +156,7 @@ sub filter_variables {
 			push(@output, $line);
 		}
 	}
-	my @result = (join("\n", @variables), join("", @output));
+	my @result = (join("\n", @variables), join(q{}, @output));
 	return @result;
 }
 
@@ -86,30 +167,31 @@ sub filter_math {
 	my $inside = 0;
 	foreach my $char (split(//, $input)) {
 		if (!$inside) {
-			push(@output, $char) if($char ne "[");
-			$inside = 1 if($char eq "[");
+			push(@output, $char) if($char ne '[');
+			$inside = 1 if($char eq '[');
 		} else {
-			push(@expr, $char) if($char ne "]");
-			if($char eq "]") {
+			push(@expr, $char) if($char ne ']');
+			if($char eq ']') {
 				$inside = 0;
-				my $x = join("", @expr);
-				die "Error: invalid math expressions" if($x !~ /^[0-9+*\/\-()\s\.]*$/g);
+				my $x = join(q{}, @expr);
+				die "Error: invalid math expressions\n" if($x !~ /^[\d+*\/\-()\s.]*$/gx);
 				push(@output, eval($x));
 				@expr = ();
 			}
 		}
 	}
-	return join("", @output);
+	return join(q{}, @output);
 }
 
 sub parse {
-	my @input = filter_comments(@_);
+	my (@in) = @_;
+	my @input = filter_comments(@in);
 	my ($variables, $vars_filtered) = filter_variables(@input);
-	my @vars = split("\n", $variables);
+	my @vars = split(/\n/, $variables);
 
 	my $recipes_str = $vars_filtered;
 	foreach my $variable (@vars) {
-		my @var = split("=", $variable);
+		my @var = split(/=/, $variable);
 		$recipes_str = replace_variable($var[0], $var[1], $recipes_str);
 	}
 
@@ -120,7 +202,7 @@ sub parse {
 }
 
 sub build_order {
-	my @recipes = @_;
+	my (@recipes) = @_;
 	my @order;
 
 	my @deps;
@@ -128,7 +210,7 @@ sub build_order {
 	my $r_ref = $recipes[0];
 	my %r = %{$r_ref};
 	foreach my $dependency (split /\s+/, $r{dependencies}) {
-		next if $dependency eq "";
+		next if $dependency eq q{};
 		push(@deps, $dependency);
 	}
 
@@ -139,7 +221,7 @@ sub build_order {
 	foreach my $dependency (@deps) {
 		my @own_list = @recipes;
 		my $index = 0;
-		$index++ until %{$own_list[$index]}{target} eq $dependency;
+		$index++ until $own_list[$index]->{target} eq $dependency;
 		my %e = %{$own_list[$index]};
 		splice(@own_list, $index, 1);
 		unshift(@own_list, \%e);
