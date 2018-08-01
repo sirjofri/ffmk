@@ -21,6 +21,10 @@ tool to output all targets to their own files (called `<target>.ff`).
 `STDOUT`. The format is like this:
 `target:farbfeld<binary-data>dlefbraf:target:farbfeld<binary-data>dlefbraf...`
 
+You can also treat the resulting data stream as input for the `ffextract`
+script. This script can extract the image channels and extract one to `STDOUT`
+or more to files (`--files`).
+
 Output EBNF
 -----------
 

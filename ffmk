@@ -135,6 +135,8 @@ sub filter_recipes {
 	foreach my $match (@matches) {
 		my @result = $match =~ /(?<target>.+):(?<dependencies>.*)(?:\n\t(?<command>.+))*\n?/gx;
 
+		die "No command for recipe $+{target}!\n" if not defined $+{command} or $+{command} eq q{};
+
 		my %recipe = (
 			target => $+{target},
 			dependencies => $+{dependencies},
@@ -220,12 +222,27 @@ sub build_order {
 
 	foreach my $dependency (@deps) {
 		my @own_list = @recipes;
-		my $index = 0;
-		$index++ until $own_list[$index]->{target} eq $dependency;
-		my %e = %{$own_list[$index]};
-		splice(@own_list, $index, 1);
-		unshift(@own_list, \%e);
-		push(@order, build_order(@own_list));
+
+		my $found = 0;
+		foreach my $index (0..$#own_list) {
+			if (!$found and $own_list[$index]->{target} eq $dependency) {
+				my %e = %{$own_list[$index]};
+				splice(@own_list, $index, 1);
+				unshift(@own_list, \%e);
+				push(@order, build_order(@own_list));
+				$found = 1;
+			}
+		}
+
+		die "Dependency $dependency not found!\n" unless $found;
+
+		# my $index = 0;
+		# $index++ until $index ge $#own_list or $own_list[$index]->{target} eq $dependency;
+		# die "Dependency $dependency not found!\n" if $index ge $#own_list;
+		# my %e = %{$own_list[$index]};
+		# splice(@own_list, $index, 1);
+		# unshift(@own_list, \%e);
+		# push(@order, build_order(@own_list));
 	}
 
 	push(@order, \%r);

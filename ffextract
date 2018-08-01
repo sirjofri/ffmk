@@ -1,0 +1,78 @@
+#!/usr/bin/env perl
+# vim:syntax=perl:
+
+=head1 NAME
+
+ffextract - A farbfeld data extractor
+
+=head1 SYNOPSIS
+
+B<< ffextract "file" < >>result-mix B<< > >>result.ff
+
+ffmk <make.fm B<< | ffextract --files "file" "file" >>
+
+ffmk <make.fm B<< | ffextract "file" > >>result.ff
+
+=head1 DESCRIPTION
+
+=head1 MORE INFORMATION
+
+For more information please visit L<https://github.com/sirjofri/ffmk/> and
+read the Readme.
+
+=cut
+
+use strict;
+use warnings;
+
+my $outfiles = 0;
+my @files;
+
+my $stream;
+
+sub main {
+	foreach my $arg (@ARGV) {
+		if ($arg eq '--files') {
+			$outfiles = 1;
+			next;
+		}
+		push @files, $arg if $arg =~ /^\w+$/g;
+	}
+
+	usage() if not defined $files[0];
+
+	my @data;
+	while(<STDIN>) {
+		push @data, $_;
+	}
+
+	$stream = join q{}, @data;
+
+	if ($outfiles) {
+		foreach my $file (@files) {
+			open my $fh, '>', "$file.ff" or die "Error opening file $file.ff: $!\n";
+			binmode $fh;
+			print {$fh} extract($file);
+			close $fh or die "Error closing file $file.ff: $!\n";
+		}
+		exit 0;
+	}
+
+	print extract($files[0]);
+}
+
+sub extract {
+	my ($file) = @_;
+
+	my $str = $stream;
+	$str =~ /$file:(?<data>farbfeld[\w\W]*)(dlefbraf)?/gm;
+	die "File $file not found!\n" unless defined $+{data};
+
+	return $+{data};
+}
+
+sub usage {
+	die "Usage: ffextract [--files] file1 [file2 ...]\n";
+}
+
+main();
