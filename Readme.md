@@ -1,5 +1,5 @@
-ffmk — a farbfeld recipe parser
-===============================
+ffmk — a makefile-like farbfeld mixer
+=====================================
 
 ![demo image](result.png)
 
@@ -69,3 +69,14 @@ sine:
 color:
 	ff-color(SIZE SIZE 1.0 0.8 0.2 1.0)
 ```
+
+Installation
+------------
+
+```
+make
+sudo make install
+```
+
+To remove the package use `sudo make uninstall`. Please note that there is a
+valid `PKGBUILD` for Arch Linux.
